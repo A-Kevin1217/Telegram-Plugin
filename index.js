@@ -13,6 +13,10 @@ const { config, configSave } = await makeConfig("Telegram", {
   proxy: "",
   reverseProxy: "",
   token: [],
+  image: {
+    height: 1280,
+    width: 1280,
+  },
 }, {
   tips: [
     "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空",
@@ -62,7 +66,7 @@ const adapter = new class TelegramAdapter {
           await sendText()
           Bot.makeLog("info", `发送图片：[${data.id}] ${file.name}(${file.url} ${(file.buffer.length/1024).toFixed(2)}KB)`, data.self_id)
           const size = imageSize(file.buffer)
-          if (size.height > 1280 || size.width > 1280)
+          if (size.height > config.image.height || size.width > config.image.width)
             ret = await data.bot.sendDocument(data.id, file.buffer, opts, { filename: file.name })
           else
             ret = await data.bot.sendPhoto(data.id, file.buffer, opts, { filename: file.name })

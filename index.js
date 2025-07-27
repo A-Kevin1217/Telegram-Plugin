@@ -82,24 +82,40 @@ const adapter = new class TelegramAdapter {
             }
           }
           
-          if (!Array.isArray(i.buttons)) {
-            i.buttons = [i.buttons]
+          // 处理按钮数据格式
+          let buttons = i.buttons || i.data || []
+          
+          // 确保按钮数据是二维数组格式
+          if (!Array.isArray(buttons)) {
+            buttons = [buttons]
           }
           
-          const row = []
-          for (const btn of i.buttons) {
-            if (typeof btn === "string") {
-              row.push({ text: btn, callback_data: btn })
-            } else {
-              const button = { text: btn.text || "按钮" }
-              if (btn.callback) button.callback_data = btn.callback
-              if (btn.url) button.url = btn.url
-              row.push(button)
+          // 如果第一层不是数组，则包装成二维数组
+          if (!Array.isArray(buttons[0])) {
+            buttons = [buttons]
+          }
+          
+          // 处理每一行按钮
+          for (const buttonRow of buttons) {
+            if (!buttonRow || !Array.isArray(buttonRow)) continue
+            
+            const row = []
+            for (const btn of buttonRow) {
+              if (!btn) continue
+              
+              if (typeof btn === "string") {
+                row.push({ text: btn, callback_data: btn })
+              } else {
+                const button = { text: btn.text || "按钮" }
+                if (btn.callback) button.callback_data = btn.callback
+                if (btn.url) button.url = btn.url
+                row.push(button)
+              }
             }
-          }
-          
-          if (row.length > 0) {
-            reply_markup.inline_keyboard.push(row)
+            
+            if (row.length > 0) {
+              reply_markup.inline_keyboard.push(row)
+            }
           }
           break
         case "image":
@@ -440,6 +456,17 @@ export const segment = {
   markdown: (text) => ({ type: "markdown", text }),
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),
-  button: (buttons) => ({ type: "button", buttons }),
+  button: (buttons) => {
+    // 确保按钮数据格式正确
+    if (!buttons) buttons = []
+    
+    // 处理不同格式的按钮数据
+    if (!Array.isArray(buttons)) {
+      buttons = [buttons]
+    }
+    
+    // 返回正确格式的按钮对象
+    return { type: "button", data: buttons }
+  },
   node: (data) => ({ type: "node", data })
 }

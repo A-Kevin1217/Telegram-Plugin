@@ -88,7 +88,7 @@ const adapter = new class TelegramAdapter {
             break
           }
           text += markdownText
-          parse_mode = "Markdown"
+          parse_mode = "HTML"
           break
         case "button":
           if (!reply_markup) {
@@ -478,7 +478,22 @@ export const segment = {
       console.log("警告: 传递给 segment.markdown 的文本为空")
       text = ""
     }
-    return { type: "markdown", data: String(text) }
+    
+    // 将 Markdown 转换为 HTML
+    let html = String(text)
+      // 处理引用
+      .replace(/^>\s(.+)$/gm, '<blockquote>$1</blockquote>')
+      // 处理粗体
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*(.+?)\*/g, '<b>$1</b>')
+      // 处理斜体
+      .replace(/_(.+?)_/g, '<i>$1</i>')
+      // 处理链接
+      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+      // 处理代码
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+    
+    return { type: "markdown", data: html }
   },
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),

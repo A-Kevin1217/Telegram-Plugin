@@ -40,11 +40,17 @@ const adapter = new class TelegramAdapter {
     let parse_mode = ""
     let reply_markup = null
     
+    // 添加调试日志
+    console.log("发送消息:", JSON.stringify(msg))
+    
     const sendText = async () => {
       if (!text) return
       const sendOpts = { ...opts }
       if (parse_mode) sendOpts.parse_mode = parse_mode
       if (reply_markup) sendOpts.reply_markup = reply_markup
+      
+      // 添加调试日志
+      console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
       
       Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
       const ret = await data.bot.sendMessage(data.id, text, sendOpts)
@@ -62,6 +68,9 @@ const adapter = new class TelegramAdapter {
       if (typeof i !== "object")
         i = { type: "text", text: i }
 
+      // 添加调试日志
+      console.log("处理消息项:", JSON.stringify(i))
+
       let file
       if (i.file)
         file = await Bot.fileType(i)
@@ -72,6 +81,10 @@ const adapter = new class TelegramAdapter {
           text += i.text
           break
         case "markdown":
+          if (!i.text) {
+            console.log("警告: markdown 消息缺少 text 字段")
+            break
+          }
           text += i.text
           parse_mode = "Markdown"
           break
@@ -343,6 +356,11 @@ const adapter = new class TelegramAdapter {
         user_id: data.user_id,
         nickname: `${data.from.first_name}-${data.from.username}`,
       }
+      
+      // 确保 data.bot 已设置
+      data.bot = Bot[id]
+      
+      // 然后再访问 fl
       data.bot.fl.set(data.user_id, { ...data.from, ...data.sender })
       
       // 处理消息来源
@@ -453,7 +471,13 @@ export const segment = {
   record: (file) => ({ type: "record", file }),
   video: (file) => ({ type: "video", file }),
   file: (file) => ({ type: "file", file }),
-  markdown: (text) => ({ type: "markdown", text }),
+  markdown: (text) => {
+    if (text === undefined || text === null) {
+      console.log("警告: 传递给 segment.markdown 的文本为空")
+      text = ""
+    }
+    return { type: "markdown", text: String(text) }
+  },
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),
   button: (buttons) => {

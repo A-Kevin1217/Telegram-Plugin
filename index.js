@@ -78,14 +78,16 @@ const adapter = new class TelegramAdapter {
       let ret
       switch (i.type) {
         case "text":
-          text += i.text
+          text += i.text || i.data || ""
           break
         case "markdown":
-          if (!i.text) {
-            console.log("警告: markdown 消息缺少 text 字段")
+          // 支持 text 或 data 字段
+          const markdownText = i.text || i.data || "";
+          if (!markdownText) {
+            console.log("警告: markdown 消息缺少 text/data 字段")
             break
           }
-          text += i.text
+          text += markdownText
           parse_mode = "Markdown"
           break
         case "button":
@@ -466,7 +468,7 @@ logger.info(logger.green("- Telegram 适配器插件 加载完成"))
 
 // 添加 segment 支持
 export const segment = {
-  text: (text) => ({ type: "text", text }),
+  text: (text) => ({ type: "text", data: text }),
   image: (file) => ({ type: "image", file }),
   record: (file) => ({ type: "record", file }),
   video: (file) => ({ type: "video", file }),
@@ -476,7 +478,7 @@ export const segment = {
       console.log("警告: 传递给 segment.markdown 的文本为空")
       text = ""
     }
-    return { type: "markdown", text: String(text) }
+    return { type: "markdown", data: String(text) }
   },
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),

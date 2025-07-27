@@ -391,6 +391,11 @@ const adapter = new class TelegramAdapter {
         Bot.makeLog("info", `按钮回调：[${data.group_name}(${data.group_id}), ${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
       }
       
+      // 添加 message 属性，使其可迭代
+      data.message_id = data.message.message_id
+      data.message = [{ type: "button", data: data.data }]
+      data.raw_message = data.data
+      
       // 发送回调数据
       data.button_data = data.data
       Bot.em(`${data.post_type}.${data.notice_type}`, data)

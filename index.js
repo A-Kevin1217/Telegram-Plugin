@@ -37,16 +37,25 @@ const adapter = new class TelegramAdapter {
     const msgs = []
     const message_id = []
     let text = ""
+    let parse_mode = ""
+    let reply_markup = null
+    
     const sendText = async () => {
       if (!text) return
+      const sendOpts = { ...opts }
+      if (parse_mode) sendOpts.parse_mode = parse_mode
+      if (reply_markup) sendOpts.reply_markup = reply_markup
+      
       Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
-      const ret = await data.bot.sendMessage(data.id, text, opts)
+      const ret = await data.bot.sendMessage(data.id, text, sendOpts)
       if (ret) {
         msgs.push(ret)
         if (ret.message_id)
           message_id.push(ret.message_id)
       }
       text = ""
+      parse_mode = ""
+      reply_markup = null
     }
 
     for (let i of msg) {
@@ -61,6 +70,37 @@ const adapter = new class TelegramAdapter {
       switch (i.type) {
         case "text":
           text += i.text
+          break
+        case "markdown":
+          text += i.text
+          parse_mode = "Markdown"
+          break
+        case "button":
+          if (!reply_markup) {
+            reply_markup = {
+              inline_keyboard: []
+            }
+          }
+          
+          if (!Array.isArray(i.buttons)) {
+            i.buttons = [i.buttons]
+          }
+          
+          const row = []
+          for (const btn of i.buttons) {
+            if (typeof btn === "string") {
+              row.push({ text: btn, callback_data: btn })
+            } else {
+              const button = { text: btn.text || "按钮" }
+              if (btn.callback) button.callback_data = btn.callback
+              if (btn.url) button.url = btn.url
+              row.push(button)
+            }
+          }
+          
+          if (row.length > 0) {
+            reply_markup.inline_keyboard.push(row)
+          }
           break
         case "image":
           await sendText()
@@ -103,8 +143,6 @@ const adapter = new class TelegramAdapter {
             message_id.push(...ret.message_id)
           }
           break
-        case "button":
-          continue
         default:
           text += JSON.stringify(i)
       }
@@ -279,6 +317,44 @@ const adapter = new class TelegramAdapter {
       this.makeMessage(data)
     })
 
+    // 添加对按钮回调的处理
+    Bot[id].on("callback_query", data => {
+      data.self_id = id
+      data.post_type = "notice"
+      data.notice_type = "button"
+      data.user_id = `tg_${data.from.id}`
+      data.sender = {
+        user_id: data.user_id,
+        nickname: `${data.from.first_name}-${data.from.username}`,
+      }
+      data.bot.fl.set(data.user_id, { ...data.from, ...data.sender })
+      
+      // 处理消息来源
+      if (data.message.chat.id === data.from.id) {
+        data.message_type = "private"
+        Bot.makeLog("info", `按钮回调：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
+      } else {
+        data.message_type = "group"
+        data.group_id = `tg_${data.message.chat.id}`
+        data.group_name = `${data.message.chat.title}-${data.message.chat.username}`
+        data.bot.gl.set(data.group_id, {
+          ...data.message.chat,
+          group_id: data.group_id,
+          group_name: data.group_name,
+        })
+        Bot.makeLog("info", `按钮回调：[${data.group_name}(${data.group_id}), ${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
+      }
+      
+      // 发送回调数据
+      data.button_data = data.data
+      Bot.em(`${data.post_type}.${data.notice_type}`, data)
+      
+      // 可选：自动回应回调，防止按钮一直显示加载状态
+      data.bot.answerCallbackQuery(data.id).catch(err => {
+        logger.error(`回应按钮回调错误：${logger.red(err)}`)
+      })
+    })
+
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)
     Bot.em(`connect.${id}`, { self_id: id })
     return true
@@ -353,3 +429,17 @@ export class Telegram extends plugin {
 }
 
 logger.info(logger.green("- Telegram 适配器插件 加载完成"))
+
+// 添加 segment 支持
+export const segment = {
+  text: (text) => ({ type: "text", text }),
+  image: (file) => ({ type: "image", file }),
+  record: (file) => ({ type: "record", file }),
+  video: (file) => ({ type: "video", file }),
+  file: (file) => ({ type: "file", file }),
+  markdown: (text) => ({ type: "markdown", text }),
+  at: (qq) => ({ type: "at", qq }),
+  reply: (id) => ({ type: "reply", id }),
+  button: (buttons) => ({ type: "button", buttons }),
+  node: (data) => ({ type: "node", data })
+}

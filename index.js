@@ -419,62 +419,24 @@ const adapter = new class TelegramAdapter {
         msgData.group_id = data.group_id
       }
       
-      // 添加回复方法，确保可以正确处理回复
-      msgData.reply = async function(content, quote = false) {
-        if (data.message_type === "group") {
-          return this.bot.pickGroup(this.group_id).sendMsg(content)
-        } else {
-          return this.bot.pickFriend(this.user_id).sendMsg(content)
+      // 添加必要的消息属性
+      msgData.to_me = true // 确保消息被认为是发给机器人的
+      msgData.isPrivate = data.message_type === "private"
+      msgData.isGroup = data.message_type === "group"
+      
+      // 确保有正确的回复方法
+      if (!msgData.reply) {
+        msgData.reply = async (content, quote = false) => {
+          return await this.sendMsg({
+            ...msgData,
+            id: msgData.message_type === "group" ? msgData.group_id.replace(/^tg_/, "") : msgData.user_id.replace(/^tg_/, ""),
+          }, content, quote ? { reply_to_message_id: msgData.message_id } : {})
         }
       }
       
       // 发送消息事件
       Bot.makeLog("info", `模拟消息：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
-      
-      // 直接尝试处理这个消息
-      try {
-        // 先通过事件系统
-        Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
-        
-        // 如果事件系统没有处理，尝试直接调用插件处理
-        if (Bot.loader && Bot.loader.plugins) {
-          Bot.makeLog("info", `尝试通过插件系统处理：${data.data}`, data.self_id)
-          
-          // 遍历所有插件
-          for (const plugin of Bot.loader.plugins) {
-            if (!plugin.rule) continue
-            
-            // 遍历插件的所有规则
-            for (const rule of plugin.rule) {
-              if (!rule.reg || !rule.fnc) continue
-              
-              // 检查是否匹配规则
-              let reg = rule.reg
-              if (typeof reg === 'string') {
-                reg = new RegExp(reg)
-              }
-              
-              // 如果匹配，调用处理函数
-              if (reg.test(data.data)) {
-                Bot.makeLog("info", `找到匹配的插件规则：${rule.fnc}`, data.self_id)
-                try {
-                  // 调用插件处理函数
-                  plugin[rule.fnc](msgData)
-                  // 匹配成功后退出循环
-                  break
-                } catch (err) {
-                  logger.error(`调用插件处理函数错误：${logger.red(err)}`)
-                }
-              }
-            }
-          }
-          
-          // 如果上面的方法都不行，尝试使用 deal 方法
-          Bot.loader.deal(msgData)
-        }
-      } catch (err) {
-        logger.error(`处理按钮回调指令错误：${logger.red(err)}`)
-      }
+      Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
     })
 
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)

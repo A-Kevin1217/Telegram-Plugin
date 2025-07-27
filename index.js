@@ -419,9 +419,31 @@ const adapter = new class TelegramAdapter {
         msgData.group_id = data.group_id
       }
       
+      // 添加回复方法，确保可以正确处理回复
+      msgData.reply = async function(content, quote = false) {
+        if (data.message_type === "group") {
+          return this.bot.pickGroup(this.group_id).sendMsg(content)
+        } else {
+          return this.bot.pickFriend(this.user_id).sendMsg(content)
+        }
+      }
+      
       // 发送消息事件
       Bot.makeLog("info", `模拟消息：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
-      Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
+      
+      // 直接尝试处理这个消息，而不是通过事件系统
+      try {
+        // 先通过事件系统
+        Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
+        
+        // 如果事件系统没有处理，尝试直接调用插件处理
+        if (Bot.loader) {
+          Bot.makeLog("info", `尝试通过插件系统处理：${data.data}`, data.self_id)
+          Bot.loader.deal(msgData)
+        }
+      } catch (err) {
+        logger.error(`处理按钮回调指令错误：${logger.red(err)}`)
+      }
     })
 
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)

@@ -404,6 +404,24 @@ const adapter = new class TelegramAdapter {
       data.bot.answerCallbackQuery(data.id).catch(err => {
         logger.error(`回应按钮回调错误：${logger.red(err)}`)
       })
+      
+      // 同时触发一个消息事件，以便能够处理指令
+      const msgData = { ...data }
+      msgData.post_type = "message"
+      msgData.message_type = data.message_type
+      msgData.sub_type = "normal"
+      msgData.message = [{ type: "text", data: data.data }]
+      msgData.raw_message = data.data
+      
+      // 如果是群消息，添加必要的群相关属性
+      if (data.message_type === "group") {
+        msgData.group_name = data.group_name
+        msgData.group_id = data.group_id
+      }
+      
+      // 发送消息事件
+      Bot.makeLog("info", `模拟消息：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
+      Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
     })
 
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)

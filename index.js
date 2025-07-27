@@ -88,7 +88,17 @@ const adapter = new class TelegramAdapter {
             break
           }
           text += markdownText
-          parse_mode = "HTML"
+          parse_mode = "Markdown"
+          break
+        case "markdownv2":
+          // 支持 text 或 data 字段
+          const markdownV2Text = i.text || i.data || "";
+          if (!markdownV2Text) {
+            console.log("警告: markdownv2 消息缺少 text/data 字段")
+            break
+          }
+          text += markdownV2Text
+          parse_mode = "MarkdownV2"
           break
         case "button":
           if (!reply_markup) {
@@ -473,27 +483,32 @@ export const segment = {
   record: (file) => ({ type: "record", file }),
   video: (file) => ({ type: "video", file }),
   file: (file) => ({ type: "file", file }),
-  markdown: (text) => {
+  markdown: (text, useV1 = false) => {
     if (text === undefined || text === null) {
       console.log("警告: 传递给 segment.markdown 的文本为空")
       text = ""
     }
     
-    // 将 Markdown 转换为 HTML
-    let html = String(text)
-      // 处理引用
-      .replace(/^>\s(.+)$/gm, '<blockquote>$1</blockquote>')
-      // 处理粗体
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/\*(.+?)\*/g, '<b>$1</b>')
-      // 处理斜体
-      .replace(/_(.+?)_/g, '<i>$1</i>')
-      // 处理链接
-      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
-      // 处理代码
-      .replace(/`(.+?)`/g, '<code>$1</code>')
+    text = String(text)
     
-    return { type: "markdown", data: html }
+    // 默认使用 MarkdownV2，除非明确指定使用 V1
+    if (!useV1) {
+      // 转义 MarkdownV2 中的特殊字符
+      text = text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+      return { type: "markdownv2", data: text }
+    } else {
+      return { type: "markdown", data: text }
+    }
+  },
+  // 保留 markdownv2 函数以兼容已有代码
+  markdownv2: (text) => {
+    if (text === undefined || text === null) {
+      console.log("警告: 传递给 segment.markdownv2 的文本为空")
+      text = ""
+    }
+    // 转义 MarkdownV2 中的特殊字符
+    text = String(text).replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+    return { type: "markdownv2", data: text }
   },
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),

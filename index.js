@@ -100,13 +100,20 @@ const adapter = new class TelegramAdapter {
           // 处理按钮数据格式
           let buttons = i.buttons || i.data || []
           
-          // 确保按钮数据是二维数组格式
+          // 确保按钮数据是数组
           if (!Array.isArray(buttons)) {
             buttons = [buttons]
           }
           
-          // 如果第一层不是数组，则包装成二维数组
-          if (!Array.isArray(buttons[0])) {
+          // 检查是否是二维数组
+          let isNestedArray = false
+          if (buttons.length > 0) {
+            isNestedArray = Array.isArray(buttons[0])
+          }
+          
+          // 如果是一维数组，并且元素是对象或字符串，则认为是单行按钮
+          // 将其转换为二维数组格式：[[按钮1, 按钮2, ...]]
+          if (!isNestedArray) {
             buttons = [buttons]
           }
           
@@ -122,14 +129,31 @@ const adapter = new class TelegramAdapter {
                 row.push({ text: btn, callback_data: btn })
               } else {
                 const button = { text: btn.text || "按钮" }
-                if (btn.callback) button.callback_data = btn.callback
+                
+                // 处理回调数据
+                if (btn.callback) {
+                  button.callback_data = btn.callback
+                  
+                  // 如果有 clicked_text，将其添加到回调数据中
+                  if (btn.clicked_text) {
+                    // 存储点击后显示的文本，格式：原始回调数据|clicked_text
+                    button.callback_data = `${button.callback_data}|${btn.clicked_text}`
+                  }
+                }
+                
+                // 处理链接
                 if (btn.url || btn.link) button.url = btn.url || btn.link
+                
+                // 其他属性
                 if (btn.web_app) button.web_app = { url: btn.web_app }
                 if (btn.login_url) button.login_url = btn.login_url
                 if (btn.callback_game) button.callback_game = {}
                 if (btn.switch_inline_query !== undefined) button.switch_inline_query = btn.switch_inline_query
                 if (btn.switch_inline_query_current_chat !== undefined) button.switch_inline_query_current_chat = btn.switch_inline_query_current_chat
                 if (btn.pay) button.pay = true
+                
+                // 注意：style 属性在 Telegram 中不支持，被忽略
+                
                 row.push(button)
               }
             }
@@ -409,6 +433,57 @@ const adapter = new class TelegramAdapter {
 
     // 添加对按钮回调的处理
     Bot[id].on("callback_query", data => {
+      // 处理回调数据，检查是否包含 clicked_text
+      let callbackData = data.data;
+      let clickedText = null;
+      
+      // 检查回调数据是否包含分隔符
+      if (callbackData && callbackData.includes('|')) {
+        const parts = callbackData.split('|');
+        callbackData = parts[0];  // 原始回调数据
+        clickedText = parts[1];   // 点击后显示的文本
+        
+        // 如果有 clicked_text，更新按钮文本
+        if (clickedText && data.message && data.message.reply_markup) {
+          try {
+            // 查找并更新按钮文本
+            const keyboard = data.message.reply_markup.inline_keyboard;
+            let buttonFound = false;
+            
+            // 遍历所有按钮行
+            for (let i = 0; i < keyboard.length; i++) {
+              const row = keyboard[i];
+              // 遍历行中的每个按钮
+              for (let j = 0; j < row.length; j++) {
+                const button = row[j];
+                // 如果找到匹配的按钮
+                if (button.callback_data && button.callback_data.startsWith(callbackData + '|')) {
+                  // 更新消息，修改按钮文本
+                  const newKeyboard = JSON.parse(JSON.stringify(keyboard));
+                  newKeyboard[i][j].text = clickedText;
+                  
+                  data.bot.editMessageReplyMarkup({
+                    inline_keyboard: newKeyboard
+                  }, {
+                    chat_id: data.message.chat.id,
+                    message_id: data.message.message_id
+                  }).catch(err => {
+                    // 忽略错误
+                    console.log("更新按钮文本失败:", err.message);
+                  });
+                  
+                  buttonFound = true;
+                  break;
+                }
+              }
+              if (buttonFound) break;
+            }
+          } catch (err) {
+            console.log("处理 clicked_text 时出错:", err);
+          }
+        }
+      }
+      
       // 创建一个消息事件对象
       const messageData = {
         raw: data,
@@ -423,9 +498,9 @@ const adapter = new class TelegramAdapter {
           user_id: `tg_${data.from.id}`,
           nickname: `${data.from.first_name}-${data.from.username}`,
         },
-        message: [{ type: "text", text: data.data }],
-        raw_message: data.data
-      }
+        message: [{ type: "text", text: callbackData }],
+        raw_message: callbackData
+      };
       
       // 如果是群消息，添加群相关信息
       if (messageData.message_type === "group") {

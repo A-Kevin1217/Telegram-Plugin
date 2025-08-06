@@ -123,7 +123,7 @@ const adapter = new class TelegramAdapter {
               } else {
                 const button = { text: btn.text || "按钮" }
                 if (btn.callback) button.callback_data = btn.callback
-                if (btn.url) button.url = btn.url
+                if (btn.url || btn.link) button.url = btn.url || btn.link
                 if (btn.web_app) button.web_app = { url: btn.web_app }
                 if (btn.login_url) button.login_url = btn.login_url
                 if (btn.callback_game) button.callback_game = {}

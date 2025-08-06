@@ -134,6 +134,12 @@ const adapter = new class TelegramAdapter {
                 const button = { text: btn.text || "按钮" }
                 if (btn.callback) button.callback_data = btn.callback
                 if (btn.url) button.url = btn.url
+                if (btn.web_app) button.web_app = { url: btn.web_app }
+                if (btn.login_url) button.login_url = btn.login_url
+                if (btn.callback_game) button.callback_game = {}
+                if (btn.switch_inline_query !== undefined) button.switch_inline_query = btn.switch_inline_query
+                if (btn.switch_inline_query_current_chat !== undefined) button.switch_inline_query_current_chat = btn.switch_inline_query_current_chat
+                if (btn.pay) button.pay = true
                 row.push(button)
               }
             }
@@ -141,6 +147,59 @@ const adapter = new class TelegramAdapter {
             if (row.length > 0) {
               reply_markup.inline_keyboard.push(row)
             }
+          }
+          break
+        case "keyboard":
+          // 处理回复键盘
+          const keyboardButtons = i.data || []
+          const keyboardOptions = i.options || {}
+          
+          if (!reply_markup) {
+            reply_markup = {
+              keyboard: [],
+              resize_keyboard: keyboardOptions.resize_keyboard || true,
+              one_time_keyboard: keyboardOptions.one_time_keyboard || false,
+              input_field_placeholder: keyboardOptions.input_field_placeholder || "",
+              selective: keyboardOptions.selective || false
+            }
+          }
+          
+          // 处理每一行按钮
+          for (const buttonRow of keyboardButtons) {
+            if (!buttonRow || !Array.isArray(buttonRow)) continue
+            
+            const row = []
+            for (const btn of buttonRow) {
+              if (!btn) continue
+              
+              if (typeof btn === "string") {
+                row.push({ text: btn })
+              } else {
+                const button = { text: btn.text || "按钮" }
+                if (btn.request_contact) button.request_contact = true
+                if (btn.request_location) button.request_location = true
+                if (btn.request_poll) button.request_poll = btn.request_poll
+                if (btn.web_app) button.web_app = { url: btn.web_app }
+                row.push(button)
+              }
+            }
+            
+            if (row.length > 0) {
+              reply_markup.keyboard.push(row)
+            }
+          }
+          break
+        case "hide_keyboard":
+          reply_markup = {
+            remove_keyboard: true,
+            selective: i.selective || false
+          }
+          break
+        case "force_reply":
+          reply_markup = {
+            force_reply: true,
+            selective: i.selective || false,
+            input_field_placeholder: i.placeholder || ""
           }
           break
         case "image":
@@ -360,83 +419,68 @@ const adapter = new class TelegramAdapter {
 
     // 添加对按钮回调的处理
     Bot[id].on("callback_query", data => {
-      data.self_id = id
-      data.post_type = "notice"
-      data.notice_type = "button"
-      data.user_id = `tg_${data.from.id}`
-      data.sender = {
-        user_id: data.user_id,
-        nickname: `${data.from.first_name}-${data.from.username}`,
+      // 创建一个消息事件对象
+      const messageData = {
+        raw: data,
+        bot: Bot[id],
+        self_id: id,
+        post_type: "message",
+        message_id: data.message.message_id,
+        message_type: data.message.chat.id === data.from.id ? "private" : "group",
+        sub_type: "normal",
+        user_id: `tg_${data.from.id}`,
+        sender: {
+          user_id: `tg_${data.from.id}`,
+          nickname: `${data.from.first_name}-${data.from.username}`,
+        },
+        message: [{ type: "text", text: data.data }],
+        raw_message: data.data
       }
       
-      // 确保 data.bot 已设置
-      data.bot = Bot[id]
-      
-      // 然后再访问 fl
-      data.bot.fl.set(data.user_id, { ...data.from, ...data.sender })
-      
-      // 处理消息来源
-      if (data.message.chat.id === data.from.id) {
-        data.message_type = "private"
-        Bot.makeLog("info", `按钮回调：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
-      } else {
-        data.message_type = "group"
-        data.group_id = `tg_${data.message.chat.id}`
-        data.group_name = `${data.message.chat.title}-${data.message.chat.username}`
-        data.bot.gl.set(data.group_id, {
-          ...data.message.chat,
-          group_id: data.group_id,
-          group_name: data.group_name,
-        })
-        Bot.makeLog("info", `按钮回调：[${data.group_name}(${data.group_id}), ${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
+      // 如果是群消息，添加群相关信息
+      if (messageData.message_type === "group") {
+        messageData.group_id = `tg_${data.message.chat.id}`
+        messageData.group_name = `${data.message.chat.title}-${data.message.chat.username}`
       }
       
-      // 添加 message 属性，使其可迭代
-      data.message_id = data.message.message_id
-      data.message = [{ type: "button", data: data.data }]
-      data.raw_message = data.data
+      // 设置 id 用于发送消息
+      messageData.id = data.message.chat.id
       
-      // 发送回调数据
-      data.button_data = data.data
-      Bot.em(`${data.post_type}.${data.notice_type}`, data)
-      
-      // 可选：自动回应回调，防止按钮一直显示加载状态
-      data.bot.answerCallbackQuery(data.id).catch(err => {
-        logger.error(`回应按钮回调错误：${logger.red(err)}`)
-      })
-      
-      // 同时触发一个消息事件，以便能够处理指令
-      const msgData = { ...data }
-      msgData.post_type = "message"
-      msgData.message_type = data.message_type
-      msgData.sub_type = "normal"
-      msgData.message = [{ type: "text", data: data.data }]
-      msgData.raw_message = data.data
-      
-      // 如果是群消息，添加必要的群相关属性
-      if (data.message_type === "group") {
-        msgData.group_name = data.group_name
-        msgData.group_id = data.group_id
-      }
-      
-      // 添加必要的消息属性
-      msgData.to_me = true // 确保消息被认为是发给机器人的
-      msgData.isPrivate = data.message_type === "private"
-      msgData.isGroup = data.message_type === "group"
-      
-      // 确保有正确的回复方法
-      if (!msgData.reply) {
-        msgData.reply = async (content, quote = false) => {
-          return await this.sendMsg({
-            ...msgData,
-            id: msgData.message_type === "group" ? msgData.group_id.replace(/^tg_/, "") : msgData.user_id.replace(/^tg_/, ""),
-          }, content, quote ? { reply_to_message_id: msgData.message_id } : {})
+      // 添加回复功能
+      messageData.reply = (msg, quote = false) => {
+        console.log("按钮回调回复被调用:", JSON.stringify(msg))
+        if (quote) {
+          if (Array.isArray(msg)) {
+            msg.unshift({ type: "reply", id: data.message.message_id })
+          } else {
+            msg = [{ type: "reply", id: data.message.message_id }, msg]
+          }
         }
+        return this.sendMsg(messageData, msg)
       }
       
-      // 发送消息事件
-      Bot.makeLog("info", `模拟消息：[${data.sender.nickname}(${data.user_id})] ${data.data}`, data.self_id)
-      Bot.em(`${msgData.post_type}.${msgData.message_type}`, msgData)
+      // 立即回应回调，防止按钮一直显示加载状态
+      try {
+        data.bot.answerCallbackQuery(data.id).catch(err => {
+          // 忽略 "query is too old" 或 "query ID is invalid" 错误
+          if (!err.message.includes("query is too old") && !err.message.includes("query ID is invalid")) {
+            logger.error(`回应按钮回调错误：${logger.red(err)}`)
+          }
+        })
+      } catch (err) {
+        // 忽略所有错误
+      }
+      
+      // 记录日志
+      if (messageData.message_type === "private") {
+        Bot.makeLog("info", `按钮回调：[${messageData.sender.nickname}(${messageData.user_id})] ${messageData.raw_message}`, messageData.self_id)
+      } else {
+        Bot.makeLog("info", `按钮回调：[${messageData.group_name}(${messageData.group_id}), ${messageData.sender.nickname}(${messageData.user_id})] ${messageData.raw_message}`, messageData.self_id)
+      }
+      
+      // 触发消息事件
+      console.log("触发消息事件:", messageData.post_type, messageData.message_type, "内容:", messageData.raw_message)
+      Bot.em(`${messageData.post_type}.${messageData.message_type}`, messageData)
     })
 
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)
@@ -550,6 +594,8 @@ export const segment = {
   },
   at: (qq) => ({ type: "at", qq }),
   reply: (id) => ({ type: "reply", id }),
+  
+  // 内联键盘按钮
   button: (buttons) => {
     // 确保按钮数据格式正确
     if (!buttons) buttons = []
@@ -562,5 +608,39 @@ export const segment = {
     // 返回正确格式的按钮对象
     return { type: "button", data: buttons }
   },
+  
+  // 回复键盘
+  keyboard: (buttons, options = {}) => {
+    if (!buttons) buttons = []
+    
+    if (!Array.isArray(buttons)) {
+      buttons = [buttons]
+    }
+    
+    // 如果第一层不是数组，则包装成二维数组
+    if (buttons.length > 0 && !Array.isArray(buttons[0])) {
+      buttons = [buttons]
+    }
+    
+    return {
+      type: "keyboard",
+      data: buttons,
+      options: options // 可以包含 resize_keyboard, one_time_keyboard, input_field_placeholder 等选项
+    }
+  },
+  
+  // 移除键盘
+  hideKeyboard: (selective = false) => ({
+    type: "hide_keyboard",
+    selective: selective
+  }),
+  
+  // 强制回复
+  forceReply: (selective = false, placeholder = "") => ({
+    type: "force_reply",
+    selective: selective,
+    placeholder: placeholder
+  }),
+  
   node: (data) => ({ type: "node", data })
 }

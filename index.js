@@ -14,13 +14,13 @@ const { config, configSave } = await makeConfig("Telegram", {
   reverseProxy: "",
   token: [],
   image: {
-    height: 1280,
-    width: 1280,
+    height: 12800,
+    width: 12800,
   },
 }, {
   tips: [
-    "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空",
-    "参考：https://github.com/TimeRainStarSky/Yunzai-Telegram-Plugin",
+    "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空 & 小丞",
+    "参考：https://github.com/A-Kevin1217/Telegram-Plugin",
   ],
 })
 
@@ -29,6 +29,16 @@ const adapter = new class TelegramAdapter {
     this.id = "Telegram"
     this.name = "TelegramBot"
     this.version = `node-telegram-bot-api v0.66.0`
+  }
+
+  // 添加markdown转义函数
+  escapeMarkdown(text) {
+    if (!text || typeof text !== 'string') return text
+    // 转义MarkdownV2中的特殊字符
+    // 需要转义的字符：_ * [ ] ( ) ~ ` > # + = | { } . ! -
+    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, function(match) {
+      return '\\' + match
+    })
   }
 
   async sendMsg(data, msg, opts = {}) {
@@ -87,7 +97,8 @@ const adapter = new class TelegramAdapter {
             console.log("警告: markdown 消息缺少 text/data 字段")
             break
           }
-          text += markdownText
+          // 转义markdown文本中的特殊字符
+          text += this.escapeMarkdown(markdownText)
           parse_mode = "MarkdownV2"
           break
         case "button":

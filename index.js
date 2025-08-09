@@ -117,8 +117,20 @@ const adapter = new class TelegramAdapter {
             buttons = [buttons]
           }
           
-          // 处理每一行按钮
+          // 处理多层数组格式（如 [[按钮1, 按钮2], [按钮3, 按钮4], [按钮5]]）
+          // 确保每个元素都是数组
+          const normalizedButtons = []
           for (const buttonRow of buttons) {
+            if (Array.isArray(buttonRow)) {
+              normalizedButtons.push(buttonRow)
+            } else {
+              // 如果不是数组，将其包装成数组
+              normalizedButtons.push([buttonRow])
+            }
+          }
+          
+          // 处理每一行按钮
+          for (const buttonRow of normalizedButtons) {
             if (!buttonRow || !Array.isArray(buttonRow)) continue
             
             const row = []
@@ -139,6 +151,12 @@ const adapter = new class TelegramAdapter {
                     // 存储点击后显示的文本，格式：原始回调数据|clicked_text
                     button.callback_data = `${button.callback_data}|${btn.clicked_text}`
                   }
+                }
+                
+                // 处理输入提示（input 属性）
+                if (btn.input) {
+                  // 将 input 属性转换为 switch_inline_query_current_chat
+                  button.switch_inline_query_current_chat = btn.input
                 }
                 
                 // 处理链接
@@ -636,6 +654,32 @@ export const segment = {
     if (text === undefined || text === null) {
       console.log("警告: 传递给 segment.markdown 的文本为空")
       text = ""
+    }
+    
+    // 检查是否是模板格式（包含 key 和 values 的对象数组）
+    if (Array.isArray(text) && text.length > 0 && typeof text[0] === 'object' && text[0].key && text[0].values) {
+      // 自动转换模板为连续文本
+      let convertedText = ""
+      for (const item of text) {
+        if (item.key && item.values && Array.isArray(item.values)) {
+          // 将 values 数组中的所有值连接起来
+          convertedText += item.values.join('')
+        }
+      }
+      text = convertedText
+    }
+    
+    // 检查是否是 custom_template_id 格式的模板
+    if (typeof text === 'object' && text.custom_template_id && text.params && Array.isArray(text.params)) {
+      // 自动转换 custom_template_id 格式的模板为连续文本
+      let convertedText = ""
+      for (const item of text.params) {
+        if (item.key && item.values && Array.isArray(item.values)) {
+          // 将 values 数组中的所有值连接起来
+          convertedText += item.values.join('')
+        }
+      }
+      text = convertedText
     }
     
     // 直接使用 MarkdownV2，不做复杂处理

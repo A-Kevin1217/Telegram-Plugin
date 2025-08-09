@@ -60,7 +60,7 @@ const adapter = new class TelegramAdapter {
       if (reply_markup) sendOpts.reply_markup = reply_markup
       
       // 添加调试日志
-      console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
+      //console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
       
       Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
       const ret = await data.bot.sendMessage(data.id, text, sendOpts)

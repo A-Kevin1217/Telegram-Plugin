@@ -31,6 +31,8 @@ const adapter = new class TelegramAdapter {
     this.version = `node-telegram-bot-api v0.66.0`
   }
 
+
+
   async sendMsg(data, msg, opts = {}) {
     if (!Array.isArray(msg))
       msg = [msg]
@@ -41,7 +43,7 @@ const adapter = new class TelegramAdapter {
     let reply_markup = null
     
     // 添加调试日志
-    console.log("发送消息:", JSON.stringify(msg))
+    //console.log("发送消息:", JSON.stringify(msg))
     
     const sendText = async () => {
       if (!text) return
@@ -50,14 +52,27 @@ const adapter = new class TelegramAdapter {
       if (reply_markup) sendOpts.reply_markup = reply_markup
       
       // 添加调试日志
-      console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
+      //console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
       
-      Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
-      const ret = await data.bot.sendMessage(data.id, text, sendOpts)
-      if (ret) {
-        msgs.push(ret)
-        if (ret.message_id)
-          message_id.push(ret.message_id)
+      //Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
+      try {
+        const ret = await data.bot.sendMessage(data.id, text, sendOpts)
+        if (ret) {
+          msgs.push(ret)
+          if (ret.message_id)
+            message_id.push(ret.message_id)
+        }
+      } catch (err) {
+        // 记录到日志
+        Bot.makeLog("error", `发送消息失败：[${data.id}] ${text} - ${err.message}`, data.self_id)
+        
+        // 如果是 Markdown 解析错误，提供解决建议
+        if (err.message && err.message.includes("can't parse entities")) {
+          console.error("💡 解决建议:")
+          console.error("1. 检查消息中是否包含特殊字符：_ * [ ] ( ) ~ ` > # + = | { } . ! -")
+          console.error("2. 这些字符在 MarkdownV2 中需要转义")
+          console.error("3. 或者改用纯文本模式发送")
+        }
       }
       text = ""
       parse_mode = ""
@@ -87,6 +102,7 @@ const adapter = new class TelegramAdapter {
             console.log("警告: markdown 消息缺少 text/data 字段")
             break
           }
+          // 直接使用原始文本，不进行转义
           text += markdownText
           parse_mode = "MarkdownV2"
           break
@@ -638,7 +654,14 @@ export const segment = {
       text = ""
     }
     
-    // 直接使用 MarkdownV2，不做复杂处理
+    // 检查是否包含需要转义的特殊字符
+    const specialChars = text.match(/[_*[\]()~`>#+=|{}.!-]/g)
+    if (specialChars) {
+      console.warn("⚠️  Markdown 消息包含特殊字符，可能导致发送失败:")
+      console.warn("特殊字符:", specialChars.join(", "))
+      console.warn("建议: 使用 segment.text() 发送纯文本，或手动转义特殊字符")
+    }
+    
     return { type: "markdown", data: String(text) }
   },
   

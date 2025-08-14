@@ -14,12 +14,12 @@ const { config, configSave } = await makeConfig("Telegram", {
   reverseProxy: "",
   token: [],
   image: {
-    height: 1280,
-    width: 1280,
+    height: 12800,
+    width: 12800,
   },
 }, {
   tips: [
-    "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空",
+    "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空 & 小丞",
     "参考：https://github.com/TimeRainStarSky/Yunzai-Telegram-Plugin",
   ],
 })

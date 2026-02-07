@@ -160,6 +160,10 @@ const adapter = new class TelegramAdapter {
                 // 处理链接
                 if (btn.url || btn.link) button.url = btn.url || btn.link
                 
+                // input：按下按钮后将文字填入输入框，用户可决定是否发送
+                // 映射到 switch_inline_query_current_chat
+                if (btn.input !== undefined) button.switch_inline_query_current_chat = btn.input
+                
                 // 其他属性
                 if (btn.web_app) button.web_app = { url: btn.web_app }
                 if (btn.login_url) button.login_url = btn.login_url
@@ -168,7 +172,13 @@ const adapter = new class TelegramAdapter {
                 if (btn.switch_inline_query_current_chat !== undefined) button.switch_inline_query_current_chat = btn.switch_inline_query_current_chat
                 if (btn.pay) button.pay = true
                 
-                // 注意：style 属性在 Telegram 中不支持，被忽略
+                // 按钮样式：支持 bg_primary（蓝色）、bg_danger（红色）、bg_success（绿色）
+                if (btn.color) button.color = btn.color
+                if (btn.style) button.color = btn.style
+                
+                // 自定义表情符号图标：显示在按钮标签前
+                if (btn.custom_emoji_id) button.custom_emoji_id = btn.custom_emoji_id
+                if (btn.emoji_id) button.custom_emoji_id = btn.emoji_id
                 
                 row.push(button)
               }
@@ -210,6 +220,15 @@ const adapter = new class TelegramAdapter {
                 if (btn.request_location) button.request_location = true
                 if (btn.request_poll) button.request_poll = btn.request_poll
                 if (btn.web_app) button.web_app = { url: btn.web_app }
+                
+                // 按钮样式：支持 bg_primary（蓝色）、bg_danger（红色）、bg_success（绿色）
+                if (btn.color) button.color = btn.color
+                if (btn.style) button.color = btn.style
+                
+                // 自定义表情符号图标：显示在按钮标签前
+                if (btn.custom_emoji_id) button.custom_emoji_id = btn.custom_emoji_id
+                if (btn.emoji_id) button.custom_emoji_id = btn.emoji_id
+                
                 row.push(button)
               }
             }
@@ -404,7 +423,7 @@ const adapter = new class TelegramAdapter {
   }
 
   async connect(token) {
-    const bot = new TelegramBot(token, { polling: true, baseApiUrl: config.reverseProxy, request: { proxy: config.proxy }})
+    const bot = new TelegramBot(token, { polling: { params: { allowed_updates: JSON.stringify(["message", "edited_message", "channel_post", "edited_channel_post", "callback_query", "inline_query", "chosen_inline_result", "poll", "poll_answer", "my_chat_member"]) } }, baseApiUrl: config.reverseProxy, request: { proxy: config.proxy }})
     bot.on("polling_error", logger.error)
     bot.login = bot.startPolling
     bot.logout = bot.stopPolling
@@ -673,6 +692,8 @@ export const segment = {
   reply: (id) => ({ type: "reply", id }),
   
   // 内联键盘按钮
+  // 支持新 API：color（按钮样式）和 custom_emoji_id（自定义图标）
+  // color 可选值：bg_primary（蓝色）、bg_danger（红色）、bg_success（绿色）
   button: (buttons) => {
     // 确保按钮数据格式正确
     if (!buttons) buttons = []
@@ -687,6 +708,7 @@ export const segment = {
   },
   
   // 回复键盘
+  // 支持新 API：color（按钮样式）和 custom_emoji_id（自定义图标）
   keyboard: (buttons, options = {}) => {
     if (!buttons) buttons = []
     

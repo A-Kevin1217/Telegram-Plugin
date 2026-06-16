@@ -7,6 +7,8 @@ import imageSize from "image-size"
 import TelegramBot from "node-telegram-bot-api"
 process.env.NTBA_FIX_350 = 1
 
+const DEFAULT_PARSE_MODE = "MarkdownV2"
+
 const { config, configSave } = await makeConfig("Telegram", {
   tips: "",
   permission: "master",
@@ -39,7 +41,7 @@ const adapter = new class TelegramAdapter {
     const msgs = []
     const message_id = []
     let text = ""
-    let parse_mode = ""
+    let parse_mode = opts.parse_mode || DEFAULT_PARSE_MODE
     let reply_markup = null
     
     // 添加调试日志
@@ -48,8 +50,16 @@ const adapter = new class TelegramAdapter {
     const sendText = async () => {
       if (!text) return
       const sendOpts = { ...opts }
-      if (parse_mode) sendOpts.parse_mode = parse_mode
+      sendOpts.parse_mode = parse_mode || DEFAULT_PARSE_MODE
       if (reply_markup) sendOpts.reply_markup = reply_markup
+
+      const saveMessage = (ret) => {
+        if (ret) {
+          msgs.push(ret)
+          if (ret.message_id)
+            message_id.push(ret.message_id)
+        }
+      }
       
       // 添加调试日志
       //console.log("发送文本:", text, "解析模式:", parse_mode, "按钮:", reply_markup ? JSON.stringify(reply_markup) : "无")
@@ -57,25 +67,26 @@ const adapter = new class TelegramAdapter {
       //Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
       try {
         const ret = await data.bot.sendMessage(data.id, text, sendOpts)
-        if (ret) {
-          msgs.push(ret)
-          if (ret.message_id)
-            message_id.push(ret.message_id)
-        }
+        saveMessage(ret)
       } catch (err) {
         // 记录到日志
         Bot.makeLog("error", `发送消息失败：[${data.id}] ${text} - ${err.message}`, data.self_id)
-        
-        // 如果是 Markdown 解析错误，提供解决建议
-        if (err.message && err.message.includes("can't parse entities")) {
-          console.error("💡 解决建议:")
-          console.error("1. 检查消息中是否包含特殊字符：_ * [ ] ( ) ~ ` > # + = | { } . ! -")
-          console.error("2. 这些字符在 MarkdownV2 中需要转义")
-          console.error("3. 或者改用纯文本模式发送")
+
+        if (sendOpts.parse_mode) {
+          const plainOpts = { ...sendOpts }
+          delete plainOpts.parse_mode
+
+          try {
+            Bot.makeLog("info", `降级普通文本发送：[${data.id}] ${text}`, data.self_id)
+            const ret = await data.bot.sendMessage(data.id, text, plainOpts)
+            saveMessage(ret)
+          } catch (plainErr) {
+            Bot.makeLog("error", `普通文本发送失败：[${data.id}] ${text} - ${plainErr.message}`, data.self_id)
+          }
         }
       }
       text = ""
-      parse_mode = ""
+      parse_mode = opts.parse_mode || DEFAULT_PARSE_MODE
       reply_markup = null
     }
 
@@ -104,7 +115,7 @@ const adapter = new class TelegramAdapter {
           }
           // 直接使用原始文本，不进行转义
           text += markdownText
-          parse_mode = "MarkdownV2"
+          parse_mode = DEFAULT_PARSE_MODE
           break
         case "button":
           if (!reply_markup) {

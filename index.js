@@ -8,6 +8,151 @@ import TelegramBot from "node-telegram-bot-api"
 process.env.NTBA_FIX_350 = 1
 
 const DEFAULT_PARSE_MODE = "MarkdownV2"
+const TG_MARKDOWN_TOKEN_RE = /\x00TGMD(\d+)\x00/g
+const TG_MARKDOWN_SPECIAL_RE = /[\\_*[\]()~`>#+\-=|{}.!]/g
+
+function escapeTelegramText(text) {
+  return String(text).replace(TG_MARKDOWN_SPECIAL_RE, "\\$&")
+}
+
+function escapeTelegramCode(text) {
+  return String(text).replace(/[\\`]/g, "\\$&")
+}
+
+function escapeTelegramUrl(url) {
+  return String(url).trim().replace(/[\\)]/g, "\\$&")
+}
+
+function convertMarkdownTable(table, protect) {
+  const rows = table
+    .trim()
+    .split("\n")
+    .filter((line, index) => index !== 1)
+    .map(line => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim()))
+  const widths = []
+
+  for (const row of rows) {
+    row.forEach((cell, index) => {
+      widths[index] = Math.max(widths[index] || 0, cell.length)
+    })
+  }
+
+  const text = rows
+    .map(row => row.map((cell, index) => cell.padEnd(widths[index] || 0)).join(" | "))
+    .join("\n")
+
+  return protect(`\`\`\`\n${escapeTelegramCode(text)}\n\`\`\``)
+}
+
+function convertMarkdownTables(text, protect) {
+  const lines = text.split("\n")
+  const result = []
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const next = lines[index + 1]
+    const isTableHeader = line?.includes("|") && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(next || "")
+
+    if (!isTableHeader) {
+      result.push(line)
+      continue
+    }
+
+    const table = [line, next]
+    index += 2
+    while (index < lines.length && lines[index].includes("|")) {
+      table.push(lines[index])
+      index++
+    }
+    index--
+    result.push(convertMarkdownTable(table.join("\n"), protect))
+  }
+
+  return result.join("\n")
+}
+
+function convertCommonMarkdownToTelegram(markdown) {
+  const tokens = []
+  const protect = (value) => `\x00TGMD${tokens.push(value) - 1}\x00`
+  const restore = (value) => {
+    let restored = value
+    let previous
+    do {
+      previous = restored
+      restored = restored.replace(TG_MARKDOWN_TOKEN_RE, (_, index) => tokens[Number(index)] || "")
+    } while (restored !== previous)
+    return restored
+  }
+  const convertInline = (value) => {
+    let text = String(value || "")
+    const format = (marker, inner) => protect(`${marker}${restore(convertInline(inner))}${marker}`)
+
+    text = text.replace(/!\[([^\]\n]*)\]\(([^)\n]+)\)/g, (_, alt, url) => {
+      const label = alt || url
+      return protect(`[${escapeTelegramText(label)}](${escapeTelegramUrl(url)})`)
+    })
+    text = text.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (_, label, url) => {
+      return protect(`[${escapeTelegramText(label)}](${escapeTelegramUrl(url)})`)
+    })
+    text = text.replace(/`([^`\n]+)`/g, (_, code) => protect(`\`${escapeTelegramCode(code)}\``))
+    text = text.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (_, inner) => {
+      return protect(`*_${restore(convertInline(inner))}_*`)
+    })
+    text = text.replace(/___([\s\S]+?)___/g, (_, inner) => {
+      return protect(`*_${restore(convertInline(inner))}_*`)
+    })
+    text = text.replace(/\*\*([\s\S]+?)\*\*/g, (_, inner) => format("*", inner))
+    text = text.replace(/__([\s\S]+?)__/g, (_, inner) => format("*", inner))
+    text = text.replace(/~~([\s\S]+?)~~/g, (_, inner) => format("~", inner))
+    text = text.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\*)/g, (_, prefix, inner) => {
+      return `${prefix}${format("_", inner)}`
+    })
+    text = text.replace(/(^|[^\w_])_([^_\n]+)_(?!_)/g, (_, prefix, inner) => {
+      return `${prefix}${format("_", inner)}`
+    })
+
+    return escapeTelegramText(text)
+  }
+
+  let text = String(markdown ?? "").replace(/\r\n/g, "\n")
+  text = text.replace(/```([^\n`]*)\n?([\s\S]*?)```/g, (_, language, code) => {
+    const lang = String(language || "").trim().replace(/[^\w+-]/g, "")
+    const head = lang ? `\`\`\`${lang}\n` : "```\n"
+    return protect(`${head}${escapeTelegramCode(code)}\n\`\`\``)
+  })
+  text = convertMarkdownTables(text, protect)
+
+  const lines = text.split("\n").map((line) => {
+    let match
+
+    if (!line.trim())
+      return ""
+
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
+      return protect("\\-\\-\\-\\-\\-\\-\\-\\-")
+
+    if ((match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/)))
+      return `*${convertInline(match[2])}*`
+
+    if ((match = line.match(/^(\s*)>\s?(.*)$/)))
+      return `${escapeTelegramText(match[1])}> ${convertInline(match[2])}`
+
+    if ((match = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.+)$/))) {
+      const checked = match[2].toLowerCase() === "x" ? "x" : " "
+      return `${escapeTelegramText(match[1])}\\[${checked}\\] ${convertInline(match[3])}`
+    }
+
+    if ((match = line.match(/^(\s*)[-*+]\s+(.+)$/)))
+      return `${escapeTelegramText(match[1])}\\- ${convertInline(match[2])}`
+
+    if ((match = line.match(/^(\s*)\d+[.)]\s+(.+)$/)))
+      return `${escapeTelegramText(match[1])}${escapeTelegramText(match[0].match(/\d+[.)]/)[0])} ${convertInline(match[2])}`
+
+    return convertInline(line)
+  })
+
+  return restore(lines.join("\n"))
+}
 
 const { config, configSave } = await makeConfig("Telegram", {
   tips: "",
@@ -52,6 +197,10 @@ const adapter = new class TelegramAdapter {
       const sendOpts = { ...opts }
       sendOpts.parse_mode = parse_mode || DEFAULT_PARSE_MODE
       if (reply_markup) sendOpts.reply_markup = reply_markup
+      const rawText = text
+      const sendText = sendOpts.parse_mode === DEFAULT_PARSE_MODE
+        ? convertCommonMarkdownToTelegram(rawText)
+        : rawText
 
       const saveMessage = (ret) => {
         if (ret) {
@@ -66,22 +215,22 @@ const adapter = new class TelegramAdapter {
       
       //Bot.makeLog("info", `发送文本：[${data.id}] ${text}`, data.self_id)
       try {
-        const ret = await data.bot.sendMessage(data.id, text, sendOpts)
+        const ret = await data.bot.sendMessage(data.id, sendText, sendOpts)
         saveMessage(ret)
       } catch (err) {
         // 记录到日志
-        Bot.makeLog("error", `发送消息失败：[${data.id}] ${text} - ${err.message}`, data.self_id)
+        Bot.makeLog("error", `发送消息失败：[${data.id}] ${rawText} - ${err.message}`, data.self_id)
 
         if (sendOpts.parse_mode) {
           const plainOpts = { ...sendOpts }
           delete plainOpts.parse_mode
 
           try {
-            Bot.makeLog("info", `降级普通文本发送：[${data.id}] ${text}`, data.self_id)
-            const ret = await data.bot.sendMessage(data.id, text, plainOpts)
+            Bot.makeLog("info", `降级普通文本发送：[${data.id}] ${rawText}`, data.self_id)
+            const ret = await data.bot.sendMessage(data.id, rawText, plainOpts)
             saveMessage(ret)
           } catch (plainErr) {
-            Bot.makeLog("error", `普通文本发送失败：[${data.id}] ${text} - ${plainErr.message}`, data.self_id)
+            Bot.makeLog("error", `普通文本发送失败：[${data.id}] ${rawText} - ${plainErr.message}`, data.self_id)
           }
         }
       }
@@ -677,21 +826,13 @@ export const segment = {
   video: (file) => ({ type: "video", file }),
   file: (file) => ({ type: "file", file }),
   
-  // 基本的 markdown 支持，直接使用 MarkdownV2
+  // 常见 Markdown 语法会在发送前转换为 Telegram MarkdownV2
   markdown: (text) => {
     if (text === undefined || text === null) {
       console.log("警告: 传递给 segment.markdown 的文本为空")
       text = ""
     }
-    
-    // 检查是否包含需要转义的特殊字符
-    const specialChars = text.match(/[_*[\]()~`>#+=|{}.!-]/g)
-    if (specialChars) {
-      console.warn("⚠️  Markdown 消息包含特殊字符，可能导致发送失败:")
-      console.warn("特殊字符:", specialChars.join(", "))
-      console.warn("建议: 使用 segment.text() 发送纯文本，或手动转义特殊字符")
-    }
-    
+
     return { type: "markdown", data: String(text) }
   },
   

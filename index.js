@@ -164,6 +164,9 @@ const { config, configSave } = await makeConfig("Telegram", {
     height: 12800,
     width: 12800,
   },
+  // Telegram 指令菜单配置，格式：{ "命令名": "描述" }
+  // 命令名只能用小写英文字母、数字和下划线，描述最多256字符
+  commands: {}
 }, {
   tips: [
     "欢迎使用 TRSS-Yunzai Telegram Plugin ! 作者：时雨🌌星空 & 小丞",
@@ -745,7 +748,41 @@ const adapter = new class TelegramAdapter {
 
     Bot.makeLog("mark", `${this.name}(${this.id}) ${this.version} 已连接`, id)
     Bot.em(`connect.${id}`, { self_id: id })
+
+    // 注册 Telegram 指令菜单（延迟30秒等待插件加载完成）
+    setTimeout(() => this.registerBotCommands(bot), 30000)
+    // 保存 bot 实例用于后续刷新
+    if (!this._bots) this._bots = new Set()
+    this._bots.add(bot)
+
     return true
+  }
+
+  async registerBotCommands(bot) {
+    const commandList = Object.entries(config.commands || {})
+      .filter(([cmd]) => /^[a-z0-9_]{1,32}$/.test(cmd))
+      .map(([command, description]) => ({
+        command,
+        description: String(description || '').substring(0, 256) || command
+      }))
+      .slice(0, 100)
+
+    if (commandList.length > 0) {
+      try {
+        await bot.setMyCommands(commandList)
+        Bot.makeLog("mark", `已注册 ${commandList.length} 个 Telegram 指令菜单：${commandList.map(c => '/' + c.command).join(', ')}`, bot.uin)
+      } catch (err) {
+        Bot.makeLog("error", `注册 Telegram 指令菜单失败：${err.message}`, bot.uin)
+      }
+    } else {
+      Bot.makeLog("info", `未配置 Telegram 指令菜单（#TG指令 add 命令名 描述 可添加）`, bot.uin)
+    }
+  }
+
+  async refreshCommands() {
+    if (!this._bots) return
+    for (const bot of this._bots)
+      await this.registerBotCommands(bot)
   }
 
   async load() {
@@ -776,6 +813,11 @@ export class Telegram extends plugin {
         {
           reg: "^#[Tt][Gg](代理|反代)",
           fnc: "Proxy",
+          permission: config.permission,
+        },
+        {
+          reg: "^#[Tt][Gg]指令.*$",
+          fnc: "Commands",
           permission: config.permission,
         }
       ]
@@ -813,6 +855,47 @@ export class Telegram extends plugin {
       this.reply(`反代已${proxy?"设置":"删除"}，重启后生效`, true)
     }
     await configSave()
+  }
+
+  async Commands() {
+    const msg = this.e.msg.replace(/^#[Tt][Gg]指令/, "").trim()
+
+    // #TG指令 — 查看当前指令菜单
+    if (!msg) {
+      const cmds = config.commands || {}
+      const entries = Object.entries(cmds)
+      if (!entries.length)
+        return this.reply("当前未配置任何指令菜单\n\n用法：\n#TG指令 add 命令名 描述 — 添加\n#TG指令 del 命令名 — 删除", true)
+      const list = entries.map(([cmd, desc]) => `/${cmd} — ${desc}`).join("\n")
+      return this.reply(`当前 ${entries.length} 个指令菜单：\n${list}\n\n#TG指令 add 命令名 描述 — 添加\n#TG指令 del 命令名 — 删除`, true)
+    }
+
+    // #TG指令 add 命令名 描述 — 添加指令
+    const addMatch = msg.match(/^add\s+([a-z0-9_]+)\s+(.+)$/i)
+    if (addMatch) {
+      const cmd = addMatch[1].toLowerCase()
+      const desc = addMatch[2].trim()
+      if (!config.commands) config.commands = {}
+      config.commands[cmd] = desc
+      await configSave()
+      await adapter.refreshCommands()
+      return this.reply(`已添加指令：/${cmd} — ${desc}`, true)
+    }
+
+    // #TG指令 del 命令名 — 删除指令
+    const delMatch = msg.match(/^del\s+([a-z0-9_]+)$/i)
+    if (delMatch) {
+      const cmd = delMatch[1].toLowerCase()
+      if (!config.commands?.[cmd])
+        return this.reply(`指令 /${cmd} 不存在`, true)
+      const desc = config.commands[cmd]
+      delete config.commands[cmd]
+      await configSave()
+      await adapter.refreshCommands()
+      return this.reply(`已删除指令：/${cmd} — ${desc}`, true)
+    }
+
+    this.reply("用法：\n#TG指令 — 查看\n#TG指令 add 命令名 描述 — 添加\n#TG指令 del 命令名 — 删除", true)
   }
 }
 

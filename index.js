@@ -250,8 +250,11 @@ const adapter = new class TelegramAdapter {
       console.log("处理消息项:", JSON.stringify(i))
 
       let file
-      if (i.file)
+      if (i.file) {
+        if (typeof i.file === "string" && !i.name)
+          i.name = path.basename(i.file)
         file = await Bot.fileType(i)
+      }
 
       let ret
       switch (i.type) {
@@ -544,7 +547,7 @@ const adapter = new class TelegramAdapter {
     }
   }
 
-  makeMessage(data) {
+  async makeMessage(data) {
     data.bot = Bot[data.self_id]
     data.post_type = "message"
     data.user_id = `tg_${data.from.id}`
@@ -564,9 +567,122 @@ const adapter = new class TelegramAdapter {
 
     data.message = []
     data.raw_message = ""
+
     if (data.text) {
       data.message.push({ type: "text", text: data.text })
       data.raw_message += data.text
+    }
+
+    if (data.document) {
+      const file = data.document
+      data.file = {
+        name: file.file_name || `${Date.now().toString(36)}.bin`,
+        size: file.file_size,
+        fid: file.file_id,
+        unique_id: file.file_unique_id,
+        mime_type: file.mime_type,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(file.file_id)
+      } catch (err) {
+        logger.error(`获取文件链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "file", file: data.file })
+      data.raw_message += `[文件: ${data.file.name}]`
+    } else if (data.photo) {
+      const photo = data.photo[data.photo.length - 1]
+      data.file = {
+        name: `${photo.file_unique_id}.jpg`,
+        size: photo.file_size,
+        fid: photo.file_id,
+        unique_id: photo.file_unique_id,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(photo.file_id)
+      } catch (err) {
+        logger.error(`获取图片链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "image", file: data.file })
+      data.raw_message += "[图片]"
+    } else if (data.video) {
+      const video = data.video
+      data.file = {
+        name: video.file_name || `${video.file_unique_id}.mp4`,
+        size: video.file_size,
+        fid: video.file_id,
+        unique_id: video.file_unique_id,
+        mime_type: video.mime_type,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(video.file_id)
+      } catch (err) {
+        logger.error(`获取视频链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "video", file: data.file })
+      data.raw_message += "[视频]"
+    } else if (data.audio) {
+      const audio = data.audio
+      data.file = {
+        name: audio.file_name || `${audio.file_unique_id}.mp3`,
+        size: audio.file_size,
+        fid: audio.file_id,
+        unique_id: audio.file_unique_id,
+        mime_type: audio.mime_type,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(audio.file_id)
+      } catch (err) {
+        logger.error(`获取音频链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "record", file: data.file })
+      data.raw_message += "[音频]"
+    } else if (data.voice) {
+      const voice = data.voice
+      data.file = {
+        name: `${voice.file_unique_id}.ogg`,
+        size: voice.file_size,
+        fid: voice.file_id,
+        unique_id: voice.file_unique_id,
+        mime_type: voice.mime_type,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(voice.file_id)
+      } catch (err) {
+        logger.error(`获取语音链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "record", file: data.file })
+      data.raw_message += "[语音]"
+    } else if (data.sticker) {
+      const sticker = data.sticker
+      data.file = {
+        name: `${sticker.file_unique_id}.webp`,
+        size: sticker.file_size,
+        fid: sticker.file_id,
+        unique_id: sticker.file_unique_id,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(sticker.file_id)
+      } catch (err) {
+        logger.error(`获取贴纸链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "image", file: data.file })
+      data.raw_message += "[贴纸]"
+    } else if (data.animation) {
+      const animation = data.animation
+      data.file = {
+        name: animation.file_name || `${animation.file_unique_id}.gif`,
+        size: animation.file_size,
+        fid: animation.file_id,
+        unique_id: animation.file_unique_id,
+        mime_type: animation.mime_type,
+      }
+      try {
+        data.file.url = await data.bot.getFileLink(animation.file_id)
+      } catch (err) {
+        logger.error(`获取动图链接错误：${logger.red(err)}`)
+      }
+      data.message.push({ type: "image", file: data.file })
+      data.raw_message += "[动图]"
     }
 
     if (data.from.id === data.chat.id) {
@@ -624,9 +740,9 @@ const adapter = new class TelegramAdapter {
 
     Bot[id].avatar = await Bot[id].pickFriend(id).getAvatarUrl()
 
-    Bot[id].on("message", data => {
+    Bot[id].on("message", async data => {
       data.self_id = id
-      this.makeMessage(data)
+      await this.makeMessage(data)
     })
 
     // 添加对按钮回调的处理
